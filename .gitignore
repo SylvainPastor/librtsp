@@ -1,0 +1,27 @@
+# Build output
+build/
+build-*/
+
+# Compiled objects (in case of in-source build)
+*.o
+*.so
+*.a
+*.dylib
+*.lib
+*.dll
+*.exe
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# clangd / tooling
+.cache/
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
