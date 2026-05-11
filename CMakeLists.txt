@@ -25,7 +25,15 @@ foreach(_mod IN LISTS GST_MODULES)
 endforeach()
 
 add_library(${PROJECT_NAME} SHARED
+  src/app_src_source.cpp
   src/event_loop.cpp
+  src/gstreamer.cpp
+  src/logger.cpp
+  src/pipeline_source.cpp
+  src/server.cpp
+  src/source.cpp
+  src/stream.cpp
+  src/test_source.cpp
   src/timer.cpp
 )
 
@@ -69,4 +77,9 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
+endif()
+
+option(LIBRTSP_BUILD_EXAMPLES "Build example programs in examples/" ON)
+if(LIBRTSP_BUILD_EXAMPLES)
+  add_subdirectory(examples)
 endif()

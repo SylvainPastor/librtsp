@@ -1,35 +1,30 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <librtsp/event_loop.hpp>
 #include <librtsp/timer.hpp>
-
-#include <atomic>
 #include <thread>
 #include <utility>
 
-TEST(TimerTest, DefaultConstructedIsNotRunning)
-{
+TEST(TimerTest, DefaultConstructedIsNotRunning) {
   librtsp::Timer t;
   EXPECT_FALSE(t.is_running());
 }
 
-TEST(TimerTest, CreatedTimerIsRunning)
-{
+TEST(TimerTest, CreatedTimerIsRunning) {
   librtsp::EventLoop loop;
   auto t = loop.create_timeout_ms(1000, [] { return true; });
   EXPECT_TRUE(t.is_running());
 }
 
-TEST(TimerTest, StopMakesNotRunning)
-{
+TEST(TimerTest, StopMakesNotRunning) {
   librtsp::EventLoop loop;
   auto t = loop.create_timeout_ms(1000, [] { return true; });
   t.stop();
   EXPECT_FALSE(t.is_running());
 }
 
-TEST(TimerTest, StopIsIdempotent)
-{
+TEST(TimerTest, StopIsIdempotent) {
   librtsp::EventLoop loop;
   auto t = loop.create_timeout_ms(1000, [] { return true; });
   t.stop();
@@ -37,8 +32,7 @@ TEST(TimerTest, StopIsIdempotent)
   EXPECT_FALSE(t.is_running());
 }
 
-TEST(TimerTest, MoveConstructTransfersOwnership)
-{
+TEST(TimerTest, MoveConstructTransfersOwnership) {
   librtsp::EventLoop loop;
   auto t1 = loop.create_timeout_ms(1000, [] { return true; });
   EXPECT_TRUE(t1.is_running());
@@ -48,8 +42,7 @@ TEST(TimerTest, MoveConstructTransfersOwnership)
   EXPECT_TRUE(t2.is_running());
 }
 
-TEST(TimerTest, MoveAssignStopsTargetAndTakesOwnership)
-{
+TEST(TimerTest, MoveAssignStopsTargetAndTakesOwnership) {
   librtsp::EventLoop loop;
   auto t1 = loop.create_timeout_ms(1000, [] { return true; });
   auto t2 = loop.create_timeout_ms(1000, [] { return true; });
@@ -61,8 +54,7 @@ TEST(TimerTest, MoveAssignStopsTargetAndTakesOwnership)
   EXPECT_FALSE(t2.is_running());
 }
 
-TEST(TimerTest, CallbackFiresMultipleTimes)
-{
+TEST(TimerTest, CallbackFiresMultipleTimes) {
   librtsp::EventLoop loop;
   std::atomic<int> count{0};
 
@@ -81,8 +73,7 @@ TEST(TimerTest, CallbackFiresMultipleTimes)
   EXPECT_GE(count.load(), 2);
 }
 
-TEST(TimerTest, CallbackReturningFalseStopsTimer)
-{
+TEST(TimerTest, CallbackReturningFalseStopsTimer) {
   librtsp::EventLoop loop;
   std::atomic<int> count{0};
 
@@ -102,8 +93,7 @@ TEST(TimerTest, CallbackReturningFalseStopsTimer)
   EXPECT_FALSE(t.is_running());
 }
 
-TEST(TimerTest, ScopeExitStopsTimerBeforeItFires)
-{
+TEST(TimerTest, ScopeExitStopsTimerBeforeItFires) {
   librtsp::EventLoop loop;
   std::atomic<int> count{0};
 

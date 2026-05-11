@@ -1,25 +1,21 @@
 #include <gtest/gtest.h>
 
-#include <librtsp/event_loop.hpp>
-
 #include <atomic>
+#include <librtsp/event_loop.hpp>
 #include <thread>
 
-TEST(EventLoopTest, ConstructsWithPrivateContext)
-{
+TEST(EventLoopTest, ConstructsWithPrivateContext) {
   librtsp::EventLoop loop;
   EXPECT_NE(loop.context(), nullptr);
 }
 
-TEST(EventLoopTest, DifferentInstancesHaveDifferentContexts)
-{
+TEST(EventLoopTest, DifferentInstancesHaveDifferentContexts) {
   librtsp::EventLoop a;
   librtsp::EventLoop b;
   EXPECT_NE(a.context(), b.context());
 }
 
-TEST(EventLoopTest, RunQuitOnMainThread)
-{
+TEST(EventLoopTest, RunQuitOnMainThread) {
   librtsp::EventLoop loop;
 
   // One-shot timer that quits the loop. Source is attached now and will
@@ -33,8 +29,7 @@ TEST(EventLoopTest, RunQuitOnMainThread)
   SUCCEED();
 }
 
-TEST(EventLoopTest, RunOnDedicatedThread)
-{
+TEST(EventLoopTest, RunOnDedicatedThread) {
   librtsp::EventLoop loop;
 
   auto stopper = loop.create_timeout_ms(20, [&loop] {
@@ -47,8 +42,7 @@ TEST(EventLoopTest, RunOnDedicatedThread)
   SUCCEED();
 }
 
-TEST(EventLoopTest, MultipleLoopsRunConcurrently)
-{
+TEST(EventLoopTest, MultipleLoopsRunConcurrently) {
   librtsp::EventLoop a;
   librtsp::EventLoop b;
   std::atomic<int> a_count{0};

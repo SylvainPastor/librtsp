@@ -4,11 +4,24 @@ BUILD_DIR := build
 SRC_DIRS := src include tests
 CXX_FILES := $(shell find $(SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.hpp' \))
 
-.PHONY: help deps format build test clean
+# Variables consumed by the run-* targets.
+PORT           ?= 8554
+GST_LEVEL      ?= 2
+VALGRIND       ?=
+GLIB_SUPP      := /usr/share/glib-2.0/valgrind/glib.supp
+VALGRIND_FLAGS ?= --leak-check=full --show-leak-kinds=definite \
+                  --track-origins=yes --error-exitcode=1 \
+                  $(if $(wildcard $(GLIB_SUPP)),--suppressions=$(GLIB_SUPP))
+
+DOCS_DIR          := docs
+UML_OUTPUT_FORMAT ?= svg
+PUPPETEER_CONFIG  := .puppeteer.json
+
+.PHONY: help deps format build test clean run-test-pattern-server docs-uml
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage: make <target>\n\nTargets:\n"} \
-		/^[a-zA-Z_-]+:.*?## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+		/^[a-zA-Z_-]+:.*?## / {printf "  %-25s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 deps: ## Install build dependencies (Debian/Ubuntu)
 	sudo apt update
@@ -20,7 +33,15 @@ deps: ## Install build dependencies (Debian/Ubuntu)
 		libgtest-dev \
 		libgstreamer1.0-dev \
 		libgstreamer-plugins-base1.0-dev \
-		libgstrtspserver-1.0-dev
+		libgstrtspserver-1.0-dev \
+		gstreamer1.0-tools \
+		gstreamer1.0-plugins-base \
+		gstreamer1.0-plugins-good \
+		gstreamer1.0-plugins-bad \
+		gstreamer1.0-plugins-ugly \
+		gstreamer1.0-libav \
+		nodejs \
+		npm
 
 format: ## Format C++ sources in-place with clang-format
 	@clang-format -i $(CXX_FILES)
@@ -34,3 +55,15 @@ test: build ## Build then run unit tests via CTest
 
 clean: ## Remove the build directory
 	rm -rf $(BUILD_DIR)
+
+run-test-pattern-server: build ## Run test_pattern_server (vars: PORT, GST_LEVEL, VALGRIND=1)
+	GST_DEBUG=$(GST_LEVEL) $(if $(VALGRIND),valgrind $(VALGRIND_FLAGS) )./$(BUILD_DIR)/examples/test_pattern_server $(PORT)
+
+docs-uml: ## Render docs/server_uml.md mermaid diagram (needs npx; var: UML_OUTPUT_FORMAT=svg|png)
+	@awk '/^```mermaid$$/{f=1; next} /^```$$/{f=0} f' $(DOCS_DIR)/server_uml.md \
+		> $(DOCS_DIR)/server_uml.mmd.tmp
+	npx --yes -p @mermaid-js/mermaid-cli mmdc \
+		$(if $(wildcard $(PUPPETEER_CONFIG)),-p $(PUPPETEER_CONFIG)) \
+		-i $(DOCS_DIR)/server_uml.mmd.tmp \
+		-o $(DOCS_DIR)/server_uml.$(UML_OUTPUT_FORMAT)
+	@rm -f $(DOCS_DIR)/server_uml.mmd.tmp

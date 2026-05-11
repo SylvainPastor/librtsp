@@ -3,7 +3,6 @@
 #include <glib.h>
 
 #include <functional>
-
 #include <librtsp/export.hpp>
 
 namespace librtsp {
