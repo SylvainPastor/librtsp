@@ -1,11 +1,9 @@
-#include "callback_sink.hpp"
-
 #include <gst/app/gstappsink.h>
 
+#include <librtsp/client/callback_sink.hpp>
+#include <librtsp/common/logger.hpp>
 #include <sstream>
 #include <utility>
-
-#include "logger.hpp"
 
 namespace librtsp {
 

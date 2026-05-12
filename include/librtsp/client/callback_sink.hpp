@@ -3,9 +3,9 @@
 #include <gst/gst.h>
 
 #include <functional>
+#include <librtsp/client/frame.hpp>
+#include <librtsp/client/sink.hpp>
 #include <librtsp/export.hpp>
-#include <librtsp/frame.hpp>
-#include <librtsp/sink.hpp>
 #include <mutex>
 #include <string>
 

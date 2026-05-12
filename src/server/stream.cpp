@@ -1,10 +1,8 @@
-#include "stream.hpp"
-
+#include <librtsp/common/logger.hpp>
+#include <librtsp/server/server.hpp>
+#include <librtsp/server/stream.hpp>
 #include <stdexcept>
 #include <utility>
-
-#include "logger.hpp"
-#include "server.hpp"
 
 namespace librtsp {
 

@@ -1,5 +1,4 @@
-#include "pipeline_source.hpp"
-
+#include <librtsp/server/pipeline_source.hpp>
 #include <utility>
 
 namespace librtsp {

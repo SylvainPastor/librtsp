@@ -7,10 +7,7 @@
 //
 // Companion of examples/test_pattern_server.cpp.
 
-#include <librtsp/callback_sink.hpp>
-#include <librtsp/client.hpp>
-#include <librtsp/frame.hpp>
-#include <librtsp/logger.hpp>
+#include <librtsp/rtsp_client.hpp>
 
 #include <atomic>
 #include <chrono>

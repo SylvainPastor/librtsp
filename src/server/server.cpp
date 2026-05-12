@@ -1,10 +1,14 @@
-#include "server.hpp"
-
 #include <gst/gst.h>
 #include <gst/rtsp-server/rtsp-server.h>
 
 #include <atomic>
 #include <cstdint>
+#include <librtsp/common/event_loop.hpp>
+#include <librtsp/common/gstreamer.hpp>
+#include <librtsp/common/logger.hpp>
+#include <librtsp/common/timer.hpp>
+#include <librtsp/server/server.hpp>
+#include <librtsp/server/stream.hpp>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -12,12 +16,6 @@
 #include <string>
 #include <thread>
 #include <utility>
-
-#include "event_loop.hpp"
-#include "gstreamer.hpp"
-#include "logger.hpp"
-#include "stream.hpp"
-#include "timer.hpp"
 
 namespace librtsp {
 

@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <librtsp/event_loop.hpp>
-#include <librtsp/timer.hpp>
+#include <librtsp/common/event_loop.hpp>
+#include <librtsp/common/timer.hpp>
 #include <thread>
 #include <utility>
 

@@ -1,4 +1,4 @@
-#include "sink.hpp"
+#include <librtsp/client/sink.hpp>
 
 namespace librtsp {
 

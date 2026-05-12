@@ -9,6 +9,7 @@ PORT           ?= 8554
 URL            ?= rtsp://127.0.0.1:8554/test
 GST_LEVEL      ?= 2
 VALGRIND       ?=
+INSTALL_PREFIX ?= /usr/local
 GLIB_SUPP      := /usr/share/glib-2.0/valgrind/glib.supp
 VALGRIND_FLAGS ?= --leak-check=full --show-leak-kinds=definite \
                   --track-origins=yes --error-exitcode=1 \
@@ -18,7 +19,7 @@ DOCS_DIR          := docs
 UML_OUTPUT_FORMAT ?= svg
 PUPPETEER_CONFIG  := .puppeteer.json
 
-.PHONY: help deps format build test clean run-test-pattern-server run-test-pattern-client docs-uml
+.PHONY: help deps format build test clean install run-test-pattern-server run-test-pattern-client docs-uml
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage: make <target>\n\nTargets:\n"} \
@@ -56,6 +57,9 @@ test: build ## Build then run unit tests via CTest
 
 clean: ## Remove the build directory
 	rm -rf $(BUILD_DIR)
+
+install: build ## Install library + headers (var: INSTALL_PREFIX=<dir>, default /usr/local)
+	cmake --install $(BUILD_DIR) --prefix $(INSTALL_PREFIX)
 
 run-test-pattern-server: build ## Run test_pattern_server (vars: PORT, GST_LEVEL, VALGRIND=1)
 	GST_DEBUG=$(GST_LEVEL) $(if $(VALGRIND),valgrind $(VALGRIND_FLAGS) )./$(BUILD_DIR)/examples/test_pattern_server $(PORT)

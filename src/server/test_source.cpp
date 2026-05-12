@@ -1,5 +1,4 @@
-#include "test_source.hpp"
-
+#include <librtsp/server/test_source.hpp>
 #include <stdexcept>
 
 namespace librtsp {

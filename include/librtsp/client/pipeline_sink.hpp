@@ -1,7 +1,7 @@
 #pragma once
 
+#include <librtsp/client/sink.hpp>
 #include <librtsp/export.hpp>
-#include <librtsp/sink.hpp>
 #include <string>
 
 namespace librtsp {

@@ -6,10 +6,7 @@
 //          gst-play-1.0 rtsp://127.0.0.1:8554/test
 //          vlc rtsp://127.0.0.1:8554/test
 
-#include <librtsp/logger.hpp>
-#include <librtsp/server.hpp>
-#include <librtsp/stream.hpp>
-#include <librtsp/test_source.hpp>
+#include <librtsp/rtsp_server.hpp>
 
 #include <atomic>
 #include <chrono>

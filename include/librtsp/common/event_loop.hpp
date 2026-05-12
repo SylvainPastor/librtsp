@@ -2,9 +2,8 @@
 
 #include <glib.h>
 
+#include <librtsp/common/timer.hpp>
 #include <librtsp/export.hpp>
-
-#include "timer.hpp"
 
 namespace librtsp {
 

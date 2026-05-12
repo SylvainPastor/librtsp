@@ -1,5 +1,4 @@
-#include "pipeline_sink.hpp"
-
+#include <librtsp/client/pipeline_sink.hpp>
 #include <utility>
 
 namespace librtsp {

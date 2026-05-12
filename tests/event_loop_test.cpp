@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <librtsp/event_loop.hpp>
+#include <librtsp/common/event_loop.hpp>
 #include <thread>
 
 TEST(EventLoopTest, ConstructsWithPrivateContext) {

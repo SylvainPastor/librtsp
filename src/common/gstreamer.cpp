@@ -1,8 +1,7 @@
-#include "gstreamer.hpp"
-
 #include <gst/gst.h>
 
 #include <cstddef>
+#include <librtsp/common/gstreamer.hpp>
 #include <mutex>
 #include <stdexcept>
 #include <string>

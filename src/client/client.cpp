@@ -1,9 +1,12 @@
-#include "client.hpp"
-
 #include <gst/gst.h>
 
 #include <atomic>
 #include <cstring>
+#include <librtsp/client/client.hpp>
+#include <librtsp/client/sink.hpp>
+#include <librtsp/common/event_loop.hpp>
+#include <librtsp/common/gstreamer.hpp>
+#include <librtsp/common/logger.hpp>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -12,11 +15,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include "event_loop.hpp"
-#include "gstreamer.hpp"
-#include "logger.hpp"
-#include "sink.hpp"
 
 namespace librtsp {
 

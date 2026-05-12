@@ -1,12 +1,10 @@
-#include "app_src_source.hpp"
-
 #include <gst/app/gstappsrc.h>
 
 #include <cstring>
+#include <librtsp/common/logger.hpp>
+#include <librtsp/server/app_src_source.hpp>
 #include <sstream>
 #include <utility>
-
-#include "logger.hpp"
 
 namespace librtsp {
 

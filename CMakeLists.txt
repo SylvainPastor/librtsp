@@ -25,27 +25,27 @@ foreach(_mod IN LISTS GST_MODULES)
 endforeach()
 
 set(COMMON_CPP_FILES
-  src/event_loop.cpp
-  src/gstreamer.cpp
-  src/logger.cpp
-  src/timer.cpp
+  src/common/event_loop.cpp
+  src/common/gstreamer.cpp
+  src/common/logger.cpp
+  src/common/timer.cpp
 )
 
 set(SERVER_CPP_FILES
-  src/app_src_source.cpp
-  src/pipeline_source.cpp
-  src/server.cpp
-  src/source.cpp
-  src/stream.cpp
-  src/test_source.cpp
+  src/server/app_src_source.cpp
+  src/server/pipeline_source.cpp
+  src/server/server.cpp
+  src/server/source.cpp
+  src/server/stream.cpp
+  src/server/test_source.cpp
 )
 
 set(CLIENT_CPP_FILES
-  src/callback_sink.cpp
-  src/client.cpp
-  src/frame.cpp
-  src/pipeline_sink.cpp
-  src/sink.cpp
+  src/client/callback_sink.cpp
+  src/client/client.cpp
+  src/client/frame.cpp
+  src/client/pipeline_sink.cpp
+  src/client/sink.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED
@@ -76,8 +76,6 @@ target_include_directories(${PROJECT_NAME}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/exports>
     $<INSTALL_INTERFACE:include>
-  PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/librtsp
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -90,6 +88,26 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang"
     -Werror -Wall -Wextra -Wpedantic
   )
 endif()
+
+# Install rules: lay out headers under <prefix>/include/librtsp preserving
+# the common/ server/ client/ subdirectories, plus the generated
+# export.hpp at <prefix>/include/librtsp/export.hpp.
+include(GNUInstallDirs)
+
+install(TARGETS ${PROJECT_NAME}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY include/librtsp
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  FILES_MATCHING PATTERN "*.hpp"
+)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/exports/librtsp/export.hpp
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/librtsp
+)
 
 # Optional: install a GStreamer debug log function so ERROR-level messages
 # (e.g. "Connection refused" from gstrtspconnection) can be retrieved via
