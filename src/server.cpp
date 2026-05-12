@@ -1,45 +1,96 @@
 #include "server.hpp"
 
+#include <gst/gst.h>
+#include <gst/rtsp-server/rtsp-server.h>
+
+#include <atomic>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 
+#include "event_loop.hpp"
 #include "gstreamer.hpp"
 #include "logger.hpp"
 #include "stream.hpp"
+#include "timer.hpp"
 
 namespace librtsp {
 
-namespace {
+class Server::Impl {
+ public:
+  explicit Impl(Server* outer);
+  Impl(Server* outer, const std::string& address, uint16_t port);
+  ~Impl();
 
-void cb_client_closed(GstRTSPClient* client, gpointer user_data) {
-  auto* self = static_cast<Server*>(user_data);
-  self->on_client_disconnected(client);
-}
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
 
-void cb_client_connected(GstRTSPServer* /*server*/, GstRTSPClient* client,
-                         gpointer user_data) {
-  auto* self = static_cast<Server*>(user_data);
-  self->on_new_client_connected(client);
-}
+  bool start();
+  void stop();
+  bool is_started() const { return running_.load(); }
 
-GstRTSPFilterResult client_filter_remove(GstRTSPServer* /*server*/,
-                                         GstRTSPClient* /*client*/,
-                                         gpointer /*user_data*/) {
-  return GST_RTSP_FILTER_REMOVE;
-}
+  std::shared_ptr<Stream> add_stream(const std::string& endpoint,
+                                     std::shared_ptr<Source> source);
+  bool remove_stream(const std::string& endpoint);
+  void detach_stream(const std::string& endpoint);
 
-}  // namespace
+ private:
+  void create();
+  void destroy();
+  void attach();
+  void clear_clients_session();
+  void run();
+  void log_client(GstRTSPClient* client, bool connected);
 
-Server::Server() {
+  // Now private; only the static trampolines below call them.
+  void on_new_client_connected(GstRTSPClient* client);
+  void on_client_disconnected(GstRTSPClient* client);
+
+  // GLib signal trampolines.
+  static void cb_client_connected(GstRTSPServer*, GstRTSPClient*, gpointer);
+  static void cb_client_closed(GstRTSPClient*, gpointer);
+  static GstRTSPFilterResult client_filter_remove(GstRTSPServer*,
+                                                  GstRTSPClient*, gpointer);
+
+  // Back-reference for Stream's owner_ pointer.
+  Server* outer_;
+
+  uint16_t port_{554};
+  std::string address_{"0.0.0.0"};
+
+  GstRTSPServer* server_{nullptr};
+  std::unique_ptr<EventLoop> loop_;
+  std::unique_ptr<std::thread> thread_;
+  std::atomic<bool> running_{false};
+
+  bool attached_{false};
+  guint source_id_{0};
+  Timer cleanup_timer_;
+
+  std::mutex client_mutex_;
+  uint8_t client_count_{0};
+
+  std::mutex streams_mutex_;
+  std::map<std::string, std::shared_ptr<Stream>> streams_;
+};
+
+// ---------------- Server::Impl ----------------
+
+Server::Impl::Impl(Server* outer) : outer_(outer) {
   loop_ = std::make_unique<EventLoop>();
   create();
-  g_signal_connect(server_, "client-connected", G_CALLBACK(cb_client_connected),
-                   this);
+  g_signal_connect(server_, "client-connected",
+                   G_CALLBACK(&Impl::cb_client_connected), this);
   attach();
 }
 
-Server::Server(const std::string& address, uint16_t port) {
+Server::Impl::Impl(Server* outer, const std::string& address, uint16_t port)
+    : outer_(outer) {
   if (port != 0) {
     port_ = port;
   }
@@ -48,15 +99,13 @@ Server::Server(const std::string& address, uint16_t port) {
   }
   loop_ = std::make_unique<EventLoop>();
   create();
-  g_signal_connect(server_, "client-connected", G_CALLBACK(cb_client_connected),
-                   this);
+  g_signal_connect(server_, "client-connected",
+                   G_CALLBACK(&Impl::cb_client_connected), this);
   attach();
 }
 
-Server::~Server() {
+Server::Impl::~Impl() {
   stop();
-  // Drain streams before tearing down the gst server. Each Stream's dtor
-  // unmounts its factory; mounted_ is set so the dtor is a no-op afterwards.
   {
     std::lock_guard<std::mutex> lock(streams_mutex_);
     streams_.clear();
@@ -64,16 +113,16 @@ Server::~Server() {
   destroy();
 }
 
-bool Server::start() {
+bool Server::Impl::start() {
   if (running_.load()) {
     return true;
   }
-  thread_ = std::make_unique<std::thread>(&Server::run, this);
+  thread_ = std::make_unique<std::thread>(&Impl::run, this);
   running_.store(true);
   return true;
 }
 
-void Server::stop() {
+void Server::Impl::stop() {
   if (thread_ && running_.load()) {
     loop_->quit();
     thread_->join();
@@ -84,14 +133,14 @@ void Server::stop() {
   }
 }
 
-void Server::on_new_client_connected(GstRTSPClient* client) {
+void Server::Impl::on_new_client_connected(GstRTSPClient* client) {
   std::lock_guard<std::mutex> lock(client_mutex_);
   ++client_count_;
   log_client(client, true);
-  g_signal_connect(client, "closed", G_CALLBACK(cb_client_closed), this);
+  g_signal_connect(client, "closed", G_CALLBACK(&Impl::cb_client_closed), this);
 }
 
-void Server::on_client_disconnected(GstRTSPClient* client) {
+void Server::Impl::on_client_disconnected(GstRTSPClient* client) {
   std::lock_guard<std::mutex> lock(client_mutex_);
   if (client_count_ > 0) {
     --client_count_;
@@ -99,7 +148,7 @@ void Server::on_client_disconnected(GstRTSPClient* client) {
   log_client(client, false);
 }
 
-void Server::log_client(GstRTSPClient* client, bool connected) {
+void Server::Impl::log_client(GstRTSPClient* client, bool connected) {
   GstRTSPConnection* connection = gst_rtsp_client_get_connection(client);
   if (!connection) {
     return;
@@ -122,7 +171,7 @@ void Server::log_client(GstRTSPClient* client, bool connected) {
   g_free(uri);
 }
 
-void Server::create() {
+void Server::Impl::create() {
   if (server_) {
     return;
   }
@@ -142,7 +191,7 @@ void Server::create() {
   g_free(svc);
 }
 
-void Server::destroy() {
+void Server::Impl::destroy() {
   if (!server_) {
     return;
   }
@@ -160,7 +209,7 @@ void Server::destroy() {
   server_ = nullptr;
 }
 
-void Server::attach() {
+void Server::Impl::attach() {
   if (attached_) {
     return;
   }
@@ -170,7 +219,6 @@ void Server::attach() {
   }
   attached_ = true;
 
-  // Periodically reap inactive sessions on the loop's context.
   cleanup_timer_ = loop_->create_timeout_s(2, [this] {
     GstRTSPSessionPool* pool = gst_rtsp_server_get_session_pool(server_);
     if (pool) {
@@ -181,28 +229,28 @@ void Server::attach() {
   });
 }
 
-void Server::clear_clients_session() {
-  gst_rtsp_server_client_filter(server_, client_filter_remove, nullptr);
+void Server::Impl::clear_clients_session() {
+  gst_rtsp_server_client_filter(server_, &Impl::client_filter_remove, nullptr);
 }
 
-void Server::run() {
+void Server::Impl::run() {
   loop_->loop();
   running_.store(false);
 }
 
-std::shared_ptr<Stream> Server::add_stream(const std::string& endpoint,
-                                           std::shared_ptr<Source> source) {
+std::shared_ptr<Stream> Server::Impl::add_stream(
+    const std::string& endpoint, std::shared_ptr<Source> source) {
   std::lock_guard<std::mutex> lock(streams_mutex_);
   if (streams_.find(endpoint) != streams_.end()) {
     throw std::runtime_error("Stream endpoint already exists: " + endpoint);
   }
   auto stream = std::shared_ptr<Stream>(
-      new Stream(server_, this, endpoint, std::move(source)));
+      new Stream(server_, outer_, endpoint, std::move(source)));
   streams_.emplace(endpoint, stream);
   return stream;
 }
 
-bool Server::remove_stream(const std::string& endpoint) {
+bool Server::Impl::remove_stream(const std::string& endpoint) {
   std::shared_ptr<Stream> sp;
   {
     std::lock_guard<std::mutex> lock(streams_mutex_);
@@ -213,13 +261,11 @@ bool Server::remove_stream(const std::string& endpoint) {
     sp = std::move(it->second);
     streams_.erase(it);
   }
-  // sp->remove() unmounts. Its callback into detach_stream() is a no-op
-  // because the map entry was just erased.
   sp->remove();
   return true;
 }
 
-void Server::detach_stream(const std::string& endpoint) {
+void Server::Impl::detach_stream(const std::string& endpoint) {
   std::shared_ptr<Stream> sp;
   {
     std::lock_guard<std::mutex> lock(streams_mutex_);
@@ -230,8 +276,51 @@ void Server::detach_stream(const std::string& endpoint) {
     sp = std::move(it->second);
     streams_.erase(it);
   }
-  // sp dtor runs at scope exit. mounted_ is already false (cleared by the
-  // caller, Stream::remove()).
+  // sp's dtor runs at scope exit. mounted_ is already false (cleared by
+  // Stream::remove() before calling us).
+}
+
+void Server::Impl::cb_client_connected(GstRTSPServer* /*server*/,
+                                       GstRTSPClient* client, gpointer user) {
+  auto* self = static_cast<Impl*>(user);
+  self->on_new_client_connected(client);
+}
+
+void Server::Impl::cb_client_closed(GstRTSPClient* client, gpointer user) {
+  auto* self = static_cast<Impl*>(user);
+  self->on_client_disconnected(client);
+}
+
+GstRTSPFilterResult Server::Impl::client_filter_remove(GstRTSPServer*,
+                                                       GstRTSPClient*,
+                                                       gpointer) {
+  return GST_RTSP_FILTER_REMOVE;
+}
+
+// ---------------- Server (forwarding to Impl) ----------------
+
+Server::Server() : impl_(std::make_unique<Impl>(this)) {}
+
+Server::Server(const std::string& address, uint16_t port)
+    : impl_(std::make_unique<Impl>(this, address, port)) {}
+
+Server::~Server() = default;
+
+bool Server::start() { return impl_->start(); }
+void Server::stop() { impl_->stop(); }
+bool Server::is_started() const { return impl_->is_started(); }
+
+std::shared_ptr<Stream> Server::add_stream(const std::string& endpoint,
+                                           std::shared_ptr<Source> source) {
+  return impl_->add_stream(endpoint, std::move(source));
+}
+
+bool Server::remove_stream(const std::string& endpoint) {
+  return impl_->remove_stream(endpoint);
+}
+
+void Server::detach_stream(const std::string& endpoint) {
+  impl_->detach_stream(endpoint);
 }
 
 }  // namespace librtsp

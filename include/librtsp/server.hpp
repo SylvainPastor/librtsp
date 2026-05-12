@@ -1,20 +1,10 @@
 #pragma once
 
-#include <gst/gst.h>
-#include <gst/rtsp-server/rtsp-server.h>
-
-#include <atomic>
 #include <cstdint>
 #include <librtsp/export.hpp>
 #include <librtsp/source.hpp>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <thread>
-
-#include "event_loop.hpp"
-#include "timer.hpp"
 
 namespace librtsp {
 
@@ -23,12 +13,12 @@ class Stream;
 /// @brief RTSP server.
 ///
 /// Wraps a GstRTSPServer. Each Server owns a private EventLoop so multiple
-/// servers can run independently in the same process. The server is
-/// attached to its loop's context at construction time; start() spawns a
+/// servers can run independently in the same process. start() spawns a
 /// dedicated thread that iterates the loop until stop() is called.
 ///
 /// Stream registration (mounting media factories on endpoints) is handled
-/// by the upcoming RtspStream class.
+/// via add_stream / remove_stream; the returned Stream is also retained by
+/// the Server.
 class LIBRTSP_API Server {
  public:
   /// @brief Default constructor. Listens on 0.0.0.0:554.
@@ -51,13 +41,7 @@ class LIBRTSP_API Server {
   void stop();
 
   /// @brief True while the server's loop thread is running.
-  bool is_started() const { return running_.load(); }
-
-  /// @brief Internal: invoked when a new client connects.
-  void on_new_client_connected(GstRTSPClient* client);
-
-  /// @brief Internal: invoked when a client disconnects or times out.
-  void on_client_disconnected(GstRTSPClient* client);
+  bool is_started() const;
 
   /// @brief Mount a Source on this Server at the given endpoint.
   /// The returned Stream is also retained by the Server until the endpoint
@@ -73,40 +57,12 @@ class LIBRTSP_API Server {
  private:
   friend class Stream;
 
-  void create();
-  void destroy();
-  void attach();
-  void clear_clients_session();
-  void run();
-  void log_client(GstRTSPClient* client, bool connected);
-
-  // Called by Stream::remove() to drop the matching entry from streams_.
+  /// @brief Called by Stream::remove() to drop the matching entry from
+  /// the internal streams map.
   void detach_stream(const std::string& endpoint);
 
-  // Configuration.
-  uint16_t port_{554};
-  std::string address_{"0.0.0.0"};
-
-  // GStreamer resources.
-  GstRTSPServer* server_{nullptr};
-
-  // Loop and worker thread.
-  std::unique_ptr<EventLoop> loop_;
-  std::unique_ptr<std::thread> thread_;
-  std::atomic<bool> running_{false};
-
-  // Source / timer state.
-  bool attached_{false};
-  guint source_id_{0};
-  Timer cleanup_timer_;
-
-  // Client tracking.
-  std::mutex client_mutex_;
-  uint8_t client_count_{0};
-
-  // Mounted streams (endpoint -> stream).
-  std::mutex streams_mutex_;
-  std::map<std::string, std::shared_ptr<Stream>> streams_;
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace librtsp
