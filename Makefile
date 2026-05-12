@@ -6,6 +6,7 @@ CXX_FILES := $(shell find $(SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.hpp' 
 
 # Variables consumed by the run-* targets.
 PORT           ?= 8554
+URL            ?= rtsp://127.0.0.1:8554/test
 GST_LEVEL      ?= 2
 VALGRIND       ?=
 GLIB_SUPP      := /usr/share/glib-2.0/valgrind/glib.supp
@@ -17,7 +18,7 @@ DOCS_DIR          := docs
 UML_OUTPUT_FORMAT ?= svg
 PUPPETEER_CONFIG  := .puppeteer.json
 
-.PHONY: help deps format build test clean run-test-pattern-server docs-uml
+.PHONY: help deps format build test clean run-test-pattern-server run-test-pattern-client docs-uml
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage: make <target>\n\nTargets:\n"} \
@@ -59,11 +60,18 @@ clean: ## Remove the build directory
 run-test-pattern-server: build ## Run test_pattern_server (vars: PORT, GST_LEVEL, VALGRIND=1)
 	GST_DEBUG=$(GST_LEVEL) $(if $(VALGRIND),valgrind $(VALGRIND_FLAGS) )./$(BUILD_DIR)/examples/test_pattern_server $(PORT)
 
-docs-uml: ## Render docs/server_uml.md mermaid diagram (needs npx; var: UML_OUTPUT_FORMAT=svg|png)
-	@awk '/^```mermaid$$/{f=1; next} /^```$$/{f=0} f' $(DOCS_DIR)/server_uml.md \
-		> $(DOCS_DIR)/server_uml.mmd.tmp
-	npx --yes -p @mermaid-js/mermaid-cli mmdc \
-		$(if $(wildcard $(PUPPETEER_CONFIG)),-p $(PUPPETEER_CONFIG)) \
-		-i $(DOCS_DIR)/server_uml.mmd.tmp \
-		-o $(DOCS_DIR)/server_uml.$(UML_OUTPUT_FORMAT)
-	@rm -f $(DOCS_DIR)/server_uml.mmd.tmp
+run-test-pattern-client: build ## Run test_pattern_client (vars: URL, GST_LEVEL, VALGRIND=1)
+	GST_DEBUG=$(GST_LEVEL) $(if $(VALGRIND),valgrind $(VALGRIND_FLAGS) )./$(BUILD_DIR)/examples/test_pattern_client $(URL)
+
+docs-uml: ## Render every docs/*_uml.md mermaid diagram (needs npx; var: UML_OUTPUT_FORMAT=svg|png)
+	@for src in $(DOCS_DIR)/*_uml.md; do \
+		stem=$$(basename $$src .md); \
+		echo ">>> Rendering $$src -> $(DOCS_DIR)/$$stem.$(UML_OUTPUT_FORMAT)"; \
+		awk '/^```mermaid$$/{f=1; next} /^```$$/{f=0} f' $$src \
+			> $(DOCS_DIR)/$$stem.mmd.tmp ; \
+		npx --yes -p @mermaid-js/mermaid-cli mmdc \
+			$(if $(wildcard $(PUPPETEER_CONFIG)),-p $(PUPPETEER_CONFIG)) \
+			-i $(DOCS_DIR)/$$stem.mmd.tmp \
+			-o $(DOCS_DIR)/$$stem.$(UML_OUTPUT_FORMAT) ; \
+		rm -f $(DOCS_DIR)/$$stem.mmd.tmp ; \
+	done

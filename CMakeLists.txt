@@ -24,17 +24,34 @@ foreach(_mod IN LISTS GST_MODULES)
   message(STATUS "    libdir:     ${GST_${_mod}_LIBDIR}")
 endforeach()
 
-add_library(${PROJECT_NAME} SHARED
-  src/app_src_source.cpp
+set(COMMON_CPP_FILES
   src/event_loop.cpp
   src/gstreamer.cpp
   src/logger.cpp
+  src/timer.cpp
+)
+
+set(SERVER_CPP_FILES
+  src/app_src_source.cpp
   src/pipeline_source.cpp
   src/server.cpp
   src/source.cpp
   src/stream.cpp
   src/test_source.cpp
-  src/timer.cpp
+)
+
+set(CLIENT_CPP_FILES
+  src/callback_sink.cpp
+  src/client.cpp
+  src/frame.cpp
+  src/pipeline_sink.cpp
+  src/sink.cpp
+)
+
+add_library(${PROJECT_NAME} SHARED
+  ${COMMON_CPP_FILES}
+  ${SERVER_CPP_FILES}
+  ${CLIENT_CPP_FILES}
 )
 
 # Hide symbols by default; only LIBRTSP_API-annotated ones are exported.
