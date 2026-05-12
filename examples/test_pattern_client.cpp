@@ -78,19 +78,28 @@ int main(int argc, char** argv) {
   librtsp::Client client(cfg);
   client.set_sink(sink);
 
+  // Subscribe to state-change notifications.
+  const auto state_sub = client.subscribe_state(
+      [](librtsp::Client::State old_s, librtsp::Client::State new_s) {
+        std::cerr << "[state] " << librtsp::to_string(old_s)
+                  << " -> " << librtsp::to_string(new_s) << '\n';
+      });
+
   if (!client.start()) {
     std::cerr << "Failed to start RTSP client\n";
+    client.unsubscribe_state(state_sub);
     return 1;
   }
 
   std::signal(SIGINT,  &on_signal);
   std::signal(SIGTERM, &on_signal);
 
-  std::cout << "Connected to " << url << "\nPress Ctrl+C to stop.\n";
+  std::cout << "Connecting to " << url << "\nPress Ctrl+C to stop.\n";
 
   auto          last_time  = std::chrono::steady_clock::now();
   std::uint64_t last_count = 0;
 
+  int exit_code = 0;
   while (g_run.load()) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -103,12 +112,20 @@ int main(int argc, char** argv) {
     const std::string codec = info ? info->codec : "?";
     const int w = frame_width.load(std::memory_order_relaxed);
     const int h = frame_height.load(std::memory_order_relaxed);
+    const auto state = client.state();
 
     std::cout << std::fixed << std::setprecision(2)
-              << "[stats] codec=" << codec
+              << "[stats] state=" << librtsp::to_string(state)
+              << " codec=" << codec
               << " size=" << w << "x" << h
               << " frames=" << cur
               << " fps=" << fps << '\n';
+
+    if (state == librtsp::Client::State::Error) {
+      std::cerr << "Connection error: " << client.last_error() << '\n';
+      exit_code = 1;
+      break;
+    }
 
     last_time  = now;
     last_count = cur;
@@ -116,5 +133,6 @@ int main(int argc, char** argv) {
 
   std::cout << "Stopping...\n";
   client.stop();
-  return 0;
+  client.unsubscribe_state(state_sub);
+  return exit_code;
 }

@@ -91,6 +91,17 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang"
   )
 endif()
 
+# Optional: install a GStreamer debug log function so ERROR-level messages
+# (e.g. "Connection refused" from gstrtspconnection) can be retrieved via
+# Gstreamer::drain_recent_errors(). When OFF, drain_recent_errors() always
+# returns an empty vector and no log function is installed.
+option(LIBRTSP_CAPTURE_GST_ERRORS
+  "Capture GStreamer ERROR-level messages for Gstreamer::drain_recent_errors()"
+  ON)
+if(LIBRTSP_CAPTURE_GST_ERRORS)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE LIBRTSP_CAPTURE_GST_ERRORS=1)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)

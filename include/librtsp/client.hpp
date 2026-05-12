@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <librtsp/export.hpp>
 #include <memory>
 #include <optional>
@@ -30,6 +31,14 @@ class LIBRTSP_API Client {
     Auto,
     Tcp,
     Udp,
+  };
+
+  /// @brief High-level connection state, polled via state().
+  enum class State {
+    Idle,        ///< Before start() or after stop().
+    Connecting,  ///< start() succeeded; waiting for the RTSP handshake.
+    Connected,   ///< rtspsrc emitted a pad, SDP received, media flowing.
+    Error,       ///< Pipeline build failed or the bus reported an error.
   };
 
   struct Config {
@@ -66,9 +75,42 @@ class LIBRTSP_API Client {
   /// received.
   std::optional<StreamInfo> stream_info() const;
 
+  /// @brief Current connection state. Thread-safe.
+  State state() const;
+
+  /// @brief Last error message captured from the pipeline (empty if none).
+  /// Set when state() == Error.
+  std::string last_error() const;
+
+  /// @brief Callable invoked when the connection state changes.
+  /// Receives `(old_state, new_state)`. Fires on the thread that triggered
+  /// the transition (worker thread for pad-added / bus errors, caller's
+  /// thread for start/stop). Several callbacks may run concurrently if
+  /// they're triggered by transitions on different threads, so the user
+  /// is responsible for any further synchronization the callback needs.
+  using StateCallback = std::function<void(State old_state, State new_state)>;
+
+  /// @brief Opaque id returned by subscribe_state(), passed to
+  /// unsubscribe_state().
+  using SubscriptionId = std::uint64_t;
+
+  /// @brief Subscribe to state-change notifications. Thread-safe.
+  /// @return Subscription id (non-zero) usable to remove the callback.
+  SubscriptionId subscribe_state(StateCallback callback);
+
+  /// @brief Remove a previously-registered callback. Thread-safe.
+  /// After this returns, the callback will not be invoked for any
+  /// *subsequent* state change. If the callback is currently running on
+  /// another thread, that invocation completes normally.
+  /// @return true if a matching subscription existed and was removed.
+  bool unsubscribe_state(SubscriptionId id);
+
  private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
+
+/// @brief Human-readable name for a Client::State.
+LIBRTSP_API const char* to_string(Client::State state);
 
 }  // namespace librtsp

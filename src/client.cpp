@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -10,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "event_loop.hpp"
 #include "gstreamer.hpp"
@@ -48,10 +50,19 @@ class Client::Impl {
   bool is_started() const { return running_.load(); }
   std::optional<StreamInfo> stream_info() const;
 
+  Client::State state() const { return state_.load(); }
+  std::string last_error() const;
+
+  Client::SubscriptionId subscribe_state(Client::StateCallback cb);
+  bool unsubscribe_state(Client::SubscriptionId id);
+
  private:
   void run();
   bool build_pipeline();
   void teardown_pipeline();
+  void set_state(Client::State new_state);
+  void set_error(std::string message);
+  void notify_state(Client::State old_state, Client::State new_state);
 
   static void on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user);
   static gboolean on_bus_message(GstBus* bus, GstMessage* msg, gpointer user);
@@ -62,12 +73,21 @@ class Client::Impl {
   std::unique_ptr<EventLoop> loop_;
   std::unique_ptr<std::thread> thread_;
   std::atomic<bool> running_{false};
+  std::atomic<Client::State> state_{Client::State::Idle};
 
   GstElement* pipeline_{nullptr};
   guint bus_source_id_{0};
 
   mutable std::mutex info_mutex_;
   StreamInfo info_;
+
+  mutable std::mutex error_mutex_;
+  std::string last_error_;
+
+  std::mutex callbacks_mutex_;
+  Client::SubscriptionId next_callback_id_{0};
+  std::vector<std::pair<Client::SubscriptionId, Client::StateCallback>>
+      callbacks_;
 };
 
 // ---------------- Client::Impl ----------------
@@ -99,9 +119,19 @@ bool Client::Impl::start() {
     return false;
   }
 
+  // Clear any prior error and announce we're connecting.
+  {
+    std::lock_guard<std::mutex> lock(error_mutex_);
+    last_error_.clear();
+  }
+  set_state(Client::State::Connecting);
+
   Gstreamer::init();
+  // Clear any stale low-level errors captured before this attempt.
+  Gstreamer::drain_recent_errors();
 
   if (!build_pipeline()) {
+    set_error("Failed to build pipeline");
     return false;
   }
 
@@ -112,7 +142,7 @@ bool Client::Impl::start() {
   GstStateChangeReturn ret =
       gst_element_set_state(pipeline_, GST_STATE_PLAYING);
   if (ret == GST_STATE_CHANGE_FAILURE) {
-    LIBRTSP_ERROR("Failed to set pipeline to PLAYING");
+    set_error("Failed to set pipeline to PLAYING");
     sink_->on_media_destroyed();
     teardown_pipeline();
     return false;
@@ -145,7 +175,71 @@ void Client::Impl::stop() {
   }
 
   teardown_pipeline();
+  set_state(Client::State::Idle);
+  {
+    std::lock_guard<std::mutex> lock(error_mutex_);
+    last_error_.clear();
+  }
   LIBRTSP_INFO("RTSP client stopped");
+}
+
+std::string Client::Impl::last_error() const {
+  std::lock_guard<std::mutex> lock(error_mutex_);
+  return last_error_;
+}
+
+void Client::Impl::set_state(Client::State new_state) {
+  Client::State old = state_.exchange(new_state);
+  if (old != new_state) {
+    notify_state(old, new_state);
+  }
+}
+
+void Client::Impl::set_error(std::string message) {
+  {
+    std::lock_guard<std::mutex> lock(error_mutex_);
+    last_error_ = std::move(message);
+  }
+  Client::State old = state_.exchange(Client::State::Error);
+  if (old != Client::State::Error) {
+    notify_state(old, Client::State::Error);
+  }
+}
+
+void Client::Impl::notify_state(Client::State old_state,
+                                Client::State new_state) {
+  // Snapshot the callback list under the lock, then invoke without
+  // holding it so subscribers may freely (un)subscribe from inside their
+  // own callback.
+  std::vector<Client::StateCallback> local;
+  {
+    std::lock_guard<std::mutex> lock(callbacks_mutex_);
+    local.reserve(callbacks_.size());
+    for (const auto& entry : callbacks_) {
+      local.push_back(entry.second);
+    }
+  }
+  for (const auto& cb : local) {
+    cb(old_state, new_state);
+  }
+}
+
+Client::SubscriptionId Client::Impl::subscribe_state(Client::StateCallback cb) {
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
+  Client::SubscriptionId id = ++next_callback_id_;
+  callbacks_.emplace_back(id, std::move(cb));
+  return id;
+}
+
+bool Client::Impl::unsubscribe_state(Client::SubscriptionId id) {
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
+  for (auto it = callbacks_.begin(); it != callbacks_.end(); ++it) {
+    if (it->first == id) {
+      callbacks_.erase(it);
+      return true;
+    }
+  }
+  return false;
 }
 
 std::optional<StreamInfo> Client::Impl::stream_info() const {
@@ -240,18 +334,45 @@ void Client::Impl::on_rtspsrc_pad_added(GstElement* /*src*/, GstPad* pad,
     }
   }
   gst_caps_unref(caps);
+
+  // SDP received and pads exposed, the RTSP session is up.
+  self->set_state(Client::State::Connected);
 }
 
 gboolean Client::Impl::on_bus_message(GstBus* /*bus*/, GstMessage* msg,
                                       gpointer user) {
   auto* self = static_cast<Impl*>(user);
-  (void)self;
   switch (GST_MESSAGE_TYPE(msg)) {
     case GST_MESSAGE_ERROR: {
       GError* err = nullptr;
       gchar* dbg = nullptr;
       gst_message_parse_error(msg, &err, &dbg);
-      LIBRTSP_ERROR("GStreamer error: " << (err ? err->message : "?"));
+      std::string text = err ? err->message : "unknown GStreamer error";
+
+      // Prefer the low-level GStreamer log lines (e.g. "failed to connect:
+      // Could not connect to 127.0.0.1: Connection refused"). Falls back
+      // to the parse_error debug string if no logs were captured (the
+      // GStreamer debug threshold may have been higher than ERROR).
+      auto recent = Gstreamer::drain_recent_errors();
+      if (!recent.empty()) {
+        text += " (";
+        for (std::size_t i = 0; i < recent.size(); ++i) {
+          if (i > 0) text += " | ";
+          text += recent[i];
+        }
+        text += ")";
+      } else if (dbg) {
+        const char* nl = std::strrchr(dbg, '\n');
+        const char* inner = (nl && *(nl + 1)) ? (nl + 1) : dbg;
+        if (inner && *inner) {
+          text += " (";
+          text += inner;
+          text += ")";
+        }
+      }
+
+      LIBRTSP_ERROR("GStreamer error: " << text);
+      self->set_error(text);
       g_clear_error(&err);
       g_free(dbg);
       break;
@@ -283,6 +404,32 @@ bool Client::is_started() const { return impl_->is_started(); }
 
 std::optional<StreamInfo> Client::stream_info() const {
   return impl_->stream_info();
+}
+
+Client::State Client::state() const { return impl_->state(); }
+
+std::string Client::last_error() const { return impl_->last_error(); }
+
+Client::SubscriptionId Client::subscribe_state(StateCallback callback) {
+  return impl_->subscribe_state(std::move(callback));
+}
+
+bool Client::unsubscribe_state(SubscriptionId id) {
+  return impl_->unsubscribe_state(id);
+}
+
+const char* to_string(Client::State state) {
+  switch (state) {
+    case Client::State::Idle:
+      return "Idle";
+    case Client::State::Connecting:
+      return "Connecting";
+    case Client::State::Connected:
+      return "Connected";
+    case Client::State::Error:
+      return "Error";
+  }
+  return "?";
 }
 
 }  // namespace librtsp
